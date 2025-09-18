@@ -3,18 +3,21 @@ const logger = require('../utils/logger');
 class AIService {
   constructor() {
     // Token estimation: roughly 1 token = 4 characters
-    this.MAX_TOKENS_PER_REQUEST = 6000;
+    this.MAX_TOKENS_PER_REQUEST = 6000; // Leave buffer for response
     this.MAX_INPUT_CHARS = this.MAX_TOKENS_PER_REQUEST * 4;
   }
 
+  // Estimate token count (rough approximation)
   estimateTokens(text) {
     return Math.ceil(text.length / 4);
   }
 
+  // Truncate content to fit within token limits
   truncateContent(content, maxTokens = 4000) {
     const maxChars = maxTokens * 4;
     if (content.length <= maxChars) return content;
     
+    // Try to truncate at sentence boundaries
     const truncated = content.substring(0, maxChars);
     const lastSentence = truncated.lastIndexOf('.');
     
@@ -23,7 +26,37 @@ class AIService {
       : truncated + '...';
   }
 
+  // Split content into chunks for processing
+  splitContent(content, maxChars = 15000) {
+    if (content.length <= maxChars) return [content];
+    
+    const chunks = [];
+    let start = 0;
+    
+    while (start < content.length) {
+      let end = start + maxChars;
+      
+      // Try to break at paragraph or sentence
+      if (end < content.length) {
+        const paragraphBreak = content.lastIndexOf('\n\n', end);
+        const sentenceBreak = content.lastIndexOf('.', end);
+        
+        if (paragraphBreak > start + maxChars * 0.5) {
+          end = paragraphBreak + 2;
+        } else if (sentenceBreak > start + maxChars * 0.7) {
+          end = sentenceBreak + 1;
+        }
+      }
+      
+      chunks.push(content.substring(start, end));
+      start = end;
+    }
+    
+    return chunks;
+  }
+
   async callGroqAPI(apiKey, prompt, maxTokens = 1000) {
+    // Check if prompt is too long
     const estimatedTokens = this.estimateTokens(prompt);
     logger.info(`Estimated tokens: ${estimatedTokens}`);
     
@@ -42,7 +75,7 @@ class AIService {
         messages: [{ role: 'user', content: prompt }],
         model: 'openai/gpt-oss-120b',
         temperature: 0.7,
-        max_tokens: Math.min(maxTokens, 2000)
+        max_tokens: Math.min(maxTokens, 2000) // Ensure response doesn't exceed limits
       })
     });
 
@@ -63,7 +96,9 @@ class AIService {
     );
   }
 
+  // SOLUTION 1: Summarize documents first, then analyze
   async analyzeDocuments(apiKey, featureName, content) {
+    // If content is too long, summarize it first
     if (content.length > 10000) {
       logger.info('Content too long, summarizing first...');
       content = await this.summarizeContent(apiKey, content);
@@ -87,6 +122,7 @@ Keep analysis concise but comprehensive.`;
     return await this.callGroqAPI(apiKey, prompt, 1200);
   }
 
+  // SOLUTION 2: Summarize long content
   async summarizeContent(apiKey, content) {
     const truncatedContent = this.truncateContent(content, 3000);
     
@@ -99,7 +135,9 @@ Keep the summary detailed enough for test case generation but concise.`;
     return await this.callGroqAPI(apiKey, prompt, 800);
   }
 
+  // SOLUTION 3: Generate fewer test cases per request
   async generateTestCases(apiKey, featureName, analysis, testType, count) {
+    // Limit test cases per request to stay within token limits
     const maxTestCasesPerRequest = Math.min(count, 3);
     const allTestCases = [];
 
@@ -127,6 +165,7 @@ Return ONLY a JSON array with these exact fields:
         const testCases = this.parseTestCases(response, testType, remainingCount, featureName, i + 1);
         allTestCases.push(...testCases);
         
+        // Add small delay between requests to avoid rate limiting
         if (i + maxTestCasesPerRequest < count) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -142,6 +181,7 @@ Return ONLY a JSON array with these exact fields:
 
   parseTestCases(response, testType, count, featureName, startIndex = 1) {
     try {
+      // Try to extract JSON array from response
       const jsonMatch = response.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -177,6 +217,7 @@ Return ONLY a JSON array with these exact fields:
     return testCases;
   }
 
+  // SOLUTION 4: Alternative - Use completely offline generation
   generateOfflineTestCases(featureName, testType, count) {
     logger.info('Generating test cases offline (no API calls)');
     
