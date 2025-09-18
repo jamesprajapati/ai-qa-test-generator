@@ -1,11 +1,15 @@
 class TestCaseApp {
   constructor() {
     this.baseURL = 'http://localhost:5000/api';
+    this.currentTestCases = [];
+    this.currentFeatureName = '';
+    this.exportFormats = {};
     this.init();
   }
 
   async init() {
-    this.checkBackendConnection();
+    await this.checkBackendConnection();
+    await this.loadExportFormats();
     this.bindEvents();
   }
 
@@ -27,6 +31,18 @@ class TestCaseApp {
     }
   }
 
+  async loadExportFormats() {
+    try {
+      const response = await fetch(`${this.baseURL}/export-formats`);
+      const result = await response.json();
+      if (result.success) {
+        this.exportFormats = result.formats;
+      }
+    } catch (error) {
+      console.error('Failed to load export formats:', error);
+    }
+  }
+
   bindEvents() {
     const form = document.getElementById('testCaseForm');
     const testBtn = document.getElementById('testConnectionBtn');
@@ -34,7 +50,6 @@ class TestCaseApp {
     form.addEventListener('submit', this.handleSubmit.bind(this));
     testBtn.addEventListener('click', this.testConnection.bind(this));
     
-    // Enable test button when API key is entered
     document.getElementById('groqApiKey').addEventListener('input', (e) => {
       testBtn.disabled = !e.target.value.trim();
     });
@@ -89,6 +104,8 @@ class TestCaseApp {
       const result = await response.json();
       
       if (result.success) {
+        this.currentTestCases = result.data.testCases;
+        this.currentFeatureName = formData.get('featureName');
         this.showResults(result.data);
       } else {
         this.showAlert(`Error: ${result.error}`, 'error');
@@ -158,44 +175,244 @@ class TestCaseApp {
     
     let html = `
       <h2>✅ Generated ${data.count} Test Cases</h2>
-      <button class="download-btn" onclick="app.downloadCSV('${data.csvData}')">
-        📥 Download CSV for Xray
-      </button>
-      <div style="margin-top: 20px;">
+      <div class="export-section">
+        ${this.generateExportButtons(data.exports)}
+      </div>
+      <div class="export-info">
+        <h3>📋 Export Information</h3>
+        <div class="export-grid">
+          ${this.generateExportInfo()}
+        </div>
+      </div>
+      <div style="margin-top: 30px;">
+        <h3>📊 Test Case Preview</h3>
     `;
     
-    data.testCases.forEach(testCase => {
+    data.testCases.forEach((testCase, index) => {
+      if (index < 3) {
+        html += this.generateTestCaseHTML(testCase);
+      }
+    });
+
+    if (data.testCases.length > 3) {
       html += `
-        <div class="test-case">
-          <h3>${testCase.id}: ${testCase.summary}</h3>
-          <div class="test-case-meta">
-            <div class="meta-item">
-              <strong>Priority:</strong> ${testCase.priority}
-            </div>
-            <div class="meta-item">
-              <strong>Type:</strong> ${testCase.type}
-            </div>
-            <div class="meta-item">
-              <strong>Category:</strong> ${testCase.category}
-            </div>
-          </div>
-          <div class="meta-item">
-            <strong>Preconditions:</strong> ${testCase.preconditions}
-          </div>
-          <div class="meta-item">
-            <strong>Steps:</strong> ${testCase.steps.replace(/\n/g, '<br>')}
-          </div>
-          <div class="meta-item">
-            <strong>Expected Result:</strong> ${testCase.expectedResult}
-          </div>
+        <div class="more-cases">
+          <p><strong>+ ${data.testCases.length - 3} more test cases...</strong></p>
+          <p>Download the complete set using the export buttons above.</p>
         </div>
       `;
-    });
+    }
     
     html += '</div>';
     resultsDiv.innerHTML = html;
     resultsDiv.style.display = 'block';
+    
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
   }
+
+  generateExportButtons(exports) {
+    let html = '<div class="export-buttons">';
+    
+    const featuredFormats = ['xray', 'testrail', 'azure'];
+    featuredFormats.forEach(format => {
+      if (exports[format]) {
+        const exportData = exports[format];
+        html += `
+          <button class="export-btn ${format === 'xray' ? 'primary' : 'secondary'}" 
+                  onclick="app.downloadExport('${format}')">
+            ${this.getFormatIcon(format)} ${this.getFormatDisplayName(format)}
+            <small>${exportData.description}</small>
+          </button>
+        `;
+      }
+    });
+
+    html += '<div class="more-exports" style="margin-top: 15px;">';
+    html += '<details><summary>More Export Formats</summary><div class="additional-exports">';
+    
+    Object.keys(exports).forEach(format => {
+      if (!featuredFormats.includes(format)) {
+        const exportData = exports[format];
+        html += `
+          <button class="export-btn small" onclick="app.downloadExport('${format}')">
+            ${this.getFormatIcon(format)} ${this.getFormatDisplayName(format)}
+            <small>${exportData.description}</small>
+          </button>
+        `;
+      }
+    });
+    
+    html += '</div></details></div></div>';
+    return html;
+  }
+
+  generateExportInfo() {
+    const infoCards = [
+      {
+        icon: '🎯',
+        title: 'Xray Integration',
+        description: 'Direct import into Jira with Xray Test Management plugin'
+      },
+      {
+        icon: '🚀',
+        title: 'TestRail Ready',
+        description: 'Compatible with TestRail test case management system'
+      },
+      {
+        icon: '☁️',
+        title: 'Azure DevOps',
+        description: 'Import directly into Azure DevOps Test Plans'
+      },
+      {
+        icon: '📊',
+        title: 'Multiple Formats',
+        description: 'JSON, CSV, and summary reports available'
+      }
+    ];
+
+    return infoCards.map(card => `
+      <div class="info-card">
+        <div class="info-icon">${card.icon}</div>
+        <h4>${card.title}</h4>
+        <p>${card.description}</p>
+      </div>
+    `).join('');
+  }
+
+  generateTestCaseHTML(testCase) {
+    return `
+      <div class="test-case">
+        <h4>${testCase.id}: ${testCase.summary}</h4>
+        <div class="test-case-meta">
+          <div class="meta-item">
+            <strong>Priority:</strong> ${testCase.priority}
+          </div>
+          <div class="meta-item">
+            <strong>Type:</strong> ${testCase.type}
+          </div>
+          <div class="meta-item">
+            <strong>Category:</strong> ${testCase.category}
+          </div>
+        </div>
+        <div class="meta-item">
+          <strong>Preconditions:</strong> ${testCase.preconditions}
+        </div>
+        <div class="meta-item">
+          <strong>Steps:</strong> ${testCase.steps.replace(/\n/g, '<br>')}
+        </div>
+        <div class="meta-item">
+          <strong>Expected Result:</strong> ${testCase.expectedResult}
+        </div>
+      </div>
+    `;
+  }
+
+  getFormatIcon(format) {
+    const icons = {
+      xray: '🎯',
+      simple: '📄',
+      testrail: '🚀',
+      azure: '☁️',
+      json: '{ }',
+      summary: '📋'
+    };
+    return icons[format] || '📁';
+  }
+
+  getFormatDisplayName(format) {
+    const names = {
+      xray: 'Xray (Jira)',
+      simple: 'Simple CSV',
+      testrail: 'TestRail',
+      azure: 'Azure DevOps',
+      json: 'JSON Data',
+      summary: 'Summary Report'
+    };
+    return names[format] || format.toUpperCase();
+  }
+
+  // In your frontend/public/js/app.js file
+// Replace the downloadExport function with this:
+
+async downloadExport(format) {
+  try {
+    console.log(`Downloading ${format} format...`); // Debug log
+    
+    const response = await fetch(`${this.baseURL}/download-export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: format,
+        testCases: this.currentTestCases,
+        featureName: this.currentFeatureName
+      })
+    });
+
+    console.log('Response status:', response.status); // Debug log
+
+    if (response.ok) {
+      const blob = await response.blob();
+      console.log('Blob created, size:', blob.size); // Debug log
+      
+      // Create proper filename
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const baseName = `${this.currentFeatureName.replace(/\s+/g, '_')}_${timestamp}`;
+      
+      let filename;
+      switch(format) {
+        case 'xray':
+          filename = `${baseName}_xray.csv`;
+          break;
+        case 'testrail':
+          filename = `${baseName}_testrail.csv`;
+          break;
+        case 'azure':
+          filename = `${baseName}_azure.csv`;
+          break;
+        case 'simple':
+          filename = `${baseName}_simple.csv`;
+          break;
+        case 'json':
+          filename = `${baseName}_data.json`;
+          break;
+        case 'summary':
+          filename = `${baseName}_summary.txt`;
+          break;
+        default:
+          filename = `export_${format}.csv`;
+      }
+      
+      console.log('Downloading as:', filename); // Debug log
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = filename;
+      
+      // Add to DOM, click, then remove
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+      
+      this.showAlert(`✅ ${this.getFormatDisplayName(format)} downloaded successfully!`, 'success');
+      
+    } else {
+      console.error('Response not OK:', response.status);
+      const error = await response.json().catch(() => ({error: 'Download failed'}));
+      this.showAlert(`❌ Download failed: ${error.error}`, 'error');
+    }
+  } catch (error) {
+    console.error('Download error:', error);
+    this.showAlert(`❌ Download failed: ${error.message}`, 'error');
+  }
+}
 
   downloadCSV(csvData) {
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
@@ -210,12 +427,24 @@ class TestCaseApp {
   }
 
   showAlert(message, type) {
-    // Simple alert for now - could be enhanced with toast notifications
-    alert(message);
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = `
+      <span>${message}</span>
+      <button onclick="this.parentElement.remove()" class="alert-close">&times;</button>
+    `;
+    
+    const container = document.querySelector('.container');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    setTimeout(() => {
+      if (alertDiv.parentElement) {
+        alertDiv.remove();
+      }
+    }, 5000);
   }
 }
 
-// Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new TestCaseApp();
 });
