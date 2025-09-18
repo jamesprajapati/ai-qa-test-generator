@@ -1,0 +1,24 @@
+{
+  "name": "ai-qa-test-generator",
+  "version": "1.0.0",
+  "description": "AI-powered QA test case generator with Xray integration",
+  "scripts": {
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "start": "concurrently \"cd backend && npm start\" \"cd frontend && npm start\"",
+    "build": "cd frontend && npm run build",
+    "test": "cd backend && npm test",
+    "docker:up": "docker-compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker-compose -f docker/docker-compose.yml down"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/ai-qa-test-generator.git"
+  },
+  "keywords": ["qa", "testing", "ai", "test-cases", "xray", "groq"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
